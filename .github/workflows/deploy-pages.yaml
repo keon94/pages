@@ -1,0 +1,95 @@
+# Sample workflow for building and deploying a Jekyll site to GitHub Pages
+name: Deploy-Pages
+
+on:
+  # Runs on pushes targeting the default branch
+  push:
+    branches: ["main"]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+  repository_dispatch:
+    types: [trigger-deployment]
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  pre-build:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+          with:
+            repository: keon94/personal-website
+            ref: ${{ github.ref }}
+            token: ${{ secrets.ACCESS_TOKEN }}
+
+        - name: Sanity check
+          run:
+            echo "Current directory is $PWD";
+            echo "Contents of current directory $(ls -la ./)";
+            echo "Received event from repo (if applicable) '${{ github.event.client_payload.client_repo }}'";
+            
+        - name: Cleanup
+          uses: peaceiris/actions-gh-pages@v3
+          with:
+            github_token: ${{ secrets.GITHUB_TOKEN }}
+            publish_dir: "./"
+            publish_branch: gh-pages
+            keep_files: false
+  # Build job
+  build:
+    needs: pre-build
+    if: ${{ always() && contains(join(needs.*.result, ','), 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: gh-pages
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./_site
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+
+  # Deployment job
+  deploy:
+    needs: build
+    if: ${{ always() && contains(join(needs.*.result, ','), 'success') }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
+
+  cleanup:
+      needs: deploy
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v3
+      - name: Cleanup
+        run:
+          git fetch --all;
+          echo "Current directory is $PWD and branch $(git branch -a)";
+          echo "Contents of current directory $(ls -la ./)";
+          git checkout gh-pages;
+          git reset --hard "main";
+          git push origin gh-pages --force;
